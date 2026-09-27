@@ -14,6 +14,19 @@ class Store:
         self._tables: dict[str, list[dict[str, Any]]] = {
             name: [dict(row) for row in rows] for name, rows in SEED_ROWS.items()
         }
+        self._backfill_judgments()
+
+    def _backfill_judgments(self) -> None:
+        """给示例出水记录补算自动判定，保证起服务即可看到完整结论与依据。"""
+        from app.services.effluent_rules import evaluate, rulebook
+
+        for row in self._tables.get("effluent", []):
+            judgment = evaluate(row, rulebook)
+            row["判定"] = judgment
+            row["status"] = judgment["status"]
+            row["出水状态"] = judgment["conclusion"] or "待判定"
+            row["pending"] = judgment["conclusion"] is None
+            row["abnormal"] = bool(judgment["flow_abnormal"]) or judgment["conclusion"] == "超标"
 
     def module_names(self) -> list[str]:
         return sorted(self._tables)

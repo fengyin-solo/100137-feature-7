@@ -34,6 +34,8 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 
 健康检查：`curl http://127.0.0.1:8000/api/health`
 
+后端测试（仅依赖标准库 unittest）：`cd backend && python3 -m unittest discover -s tests`
+
 ### 前端
 
 ```bash
@@ -69,6 +71,26 @@ npm run dev
 | 污染源溯源 | `pollutant` | 溯源记录 | 溯源编号、异常厂站、异常指标 |
 | 药剂耗材 | `material` | 耗材 | 耗材编号、耗材名称、规格型号 |
 | 排污许可 | `license` | 排污许可证 | 证照编号、持证单位、许可排放量 |
+
+## 出水监测自动判定
+
+出水记录的达标/超标结论不再由化验员手工填写，由后端按厂站适用的排放标准自动生成：
+
+- **判定指标**：COD出水值、氨氮出水值、总磷出水值分别与限值比对，任一超限即"超标"，
+  全部不超限才"达标"；超标逐项给出实测/限值倍数与倍数区间（1~2、2~3、3~5、5~10、>10 倍）。
+- **厂站口径**：排放标准（一级A/一级B/二级/三级）与排放流量正常区间按厂站配置，
+  见 `backend/app/services/effluent_rules.py`；未配置口径的厂站不出结论。
+- **指标异常**：三项指标缺失或不是合法数字（含负数）时不生成结论，并逐条说明原因；
+  记录仍会保留。排放流量缺失/格式错/越界只做"流量异常"单独标记，不影响达标结论。
+- **规则版本**：限值或厂站口径调整后规则版本号递增，既有记录保留录入时的规则快照，
+  不会被悄悄改写；需要套新口径时调用 `POST /api/effluent/rejudge-all`（或单条
+  `POST /api/effluent/{id}/rejudge`）重新判定。
+- **复核一致性**：每条判定固化规则快照（限值、区间、版本、输入值）及联合哈希，
+  `GET /api/effluent/{id}/review` 用快照原样重算并比对哈希，确保复核人看到的依据
+  与录入时那份完全一致。
+- **规则维护接口**：`GET /api/effluent/rules`、`PUT /api/effluent/rules/standards/{标准}`、
+  `PUT /api/effluent/rules/stations/{厂站}`。
+- 预警通知/关阀截流/恢复排放等运维动作只改"处置状态"，不改写自动判定结论。
 
 ## 约定
 
