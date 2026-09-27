@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.routers import ROUTERS
+from app.services.discharge_rules import discharge_rules
 from app.store import store
 
 app = FastAPI(title="污水处理厂工艺管理平台", version="1.0.0")
@@ -24,6 +25,9 @@ app.add_middleware(
 
 for module in ROUTERS:
     app.include_router(module.router)
+
+# 装入 v1 排放限值口径，并对既有出水记录补判一次（判定固化在服务层，不依赖人工填写）。
+discharge_rules.bootstrap()
 
 
 @app.get("/api/health")

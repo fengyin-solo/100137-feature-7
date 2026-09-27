@@ -13,6 +13,7 @@ from app.routers import chemical as router_chemical
 from app.routers import sediment as router_sediment
 from app.routers import sludge as router_sludge
 from app.routers import effluent as router_effluent
+from app.routers import effluent_rules as router_effluent_rules
 from app.routers import labtest as router_labtest
 from app.routers import reagent as router_reagent
 from app.routers import equip as router_equip
@@ -27,4 +28,4 @@ from app.routers import pollutant as router_pollutant
 from app.routers import material as router_material
 from app.routers import license as router_license
 
-ROUTERS = [router_plank, router_inflow, router_aeration, router_chemical, router_sediment, router_sludge, router_effluent, router_labtest, router_reagent, router_equip, router_pump, router_power, router_pipe, router_lift, router_meter, router_dispatch2, router_storm, router_pollutant, router_material, router_license]
+ROUTERS = [router_plank, router_inflow, router_aeration, router_chemical, router_sediment, router_sludge, router_effluent, router_effluent_rules, router_labtest, router_reagent, router_equip, router_pump, router_power, router_pipe, router_lift, router_meter, router_dispatch2, router_storm, router_pollutant, router_material, router_license]

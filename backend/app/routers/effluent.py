@@ -1,4 +1,4 @@
-"""出水监测接口：维护出水记录，覆盖预警通知、关阀截流、恢复排放等动作。"""
+"""出水监测接口：维护出水记录，自动判定覆盖预警通知、关阀截流、恢复排放等处置动作。"""
 from __future__ import annotations
 
 from typing import Any
@@ -12,22 +12,47 @@ router = APIRouter(prefix="/api/effluent", tags=["出水监测"])
 
 service = EffluentService()
 
-LIST_FIELDS = ["记录编号", "所属厂站", "监测时间", "COD出水值", "氨氮出水值", "总磷出水值", "排放流量", "出水状态"]
-STATUSES = ["达标", "接近限值", "超标", "已关阀"]
+LIST_FIELDS = [
+    "记录编号", "所属厂站", "监测时间",
+    "COD出水值", "氨氮出水值", "总磷出水值", "排放流量",
+    "判定结论", "超标倍数", "流量异常", "判定规则版本", "处置状态",
+]
 
 
 @router.get("", response_model=PageResult[dict])
 def list_entries(
     keyword: str | None = Query(default=None, description="按记录编号检索"),
-    status: str | None = Query(default=None, description="达标、接近限值、超标、已关阀"),
+    status: str | None = Query(default=None, description="判定结论：达标、超标、无法判定"),
+    station: str | None = Query(default=None, description="按所属厂站名称过滤"),
+    flow_abnormal: bool | None = Query(default=None, description="true 只看排放流量异常记录"),
     page: int = 1,
     size: int = 20,
 ) -> PageResult[dict]:
-    """按记录编号与状态过滤出水监测列表；没有数据时返回空页，不报错。"""
+    """按记录编号、判定结论、厂站与流量异常过滤出水记录；没有数据时返回空页，不报错。"""
     if size > 200:
         raise HTTPException(status_code=400, detail="每页最多 200 条，请缩小分页范围")
-    items, total = service.list_entries(keyword=keyword, status=status, page=page, size=size)
+    items, total = service.list_entries(
+        keyword=keyword,
+        status=status,
+        station=station,
+        flow_abnormal=flow_abnormal,
+        page=page,
+        size=size,
+    )
     return PageResult(items=items, total=total, page=page, size=size)
+
+
+@router.get("/export")
+def export_entries(
+    status: str | None = None,
+    station: str | None = None,
+    flow_abnormal: bool | None = None,
+) -> dict[str, Any]:
+    """导出出水监测清单：返回当前过滤条件下的全量数据（含判定依据快照）。"""
+    items, total = service.list_entries(
+        status=status, station=station, flow_abnormal=flow_abnormal, page=1, size=10000
+    )
+    return {"module": "effluent", "total": total, "items": items}
 
 
 @router.get("/{entry_id}", response_model=dict)
@@ -41,25 +66,32 @@ def get_entry(entry_id: int) -> dict:
 
 @router.post("", response_model=ActionResult)
 def create_entry(payload: EntryPayload) -> ActionResult:
-    """登记一条出水记录，缺字段时说明原因而不是静默丢弃。"""
+    """登记一条出水记录并按当前口径自动判定；缺主档字段说明原因，指标缺失只影响结论不影响登记。"""
     entry, missing = service.create_entry(payload.values)
     if missing:
         return ActionResult(ok=False, message=f"缺少必填字段：{'、'.join(missing)}")
-    return ActionResult(ok=True, message="出水记录已登记", entry=entry)
+    message = f"出水记录已登记，自动判定：{entry['判定结论']}（口径 {entry['判定规则版本']}）"
+    if entry["判定问题"]:
+        message += f"；未生成结论原因：{entry['判定问题']}"
+    if entry["流量异常"]:
+        message += f"；{entry['流量异常说明']}"
+    return ActionResult(ok=True, message=message, entry=entry)
 
 
-@router.post("/{entry_id}/actions", response_model=ActionResult)
-def run_action(entry_id: int, payload: EntryPayload) -> ActionResult:
-    """对单条出水记录执行预警通知、关阀截流、恢复排放；不允许的动作会被拦下并说明原因。"""
-    action = str(payload.values.get("action") or "").strip()
-    entry, message = service.run_action(entry_id, action)
+@router.post("/{entry_id}/rejudge", response_model=ActionResult)
+def rejudge_entry(entry_id: int) -> ActionResult:
+    """按当前生效口径重判单条记录；录入时的判定依据保持不变。"""
+    entry, message = service.rejudge_entry(entry_id)
     if entry is None:
         return ActionResult(ok=False, message=message)
     return ActionResult(ok=True, message=message, entry=entry)
 
 
-@router.get("/export")
-def export_entries() -> dict[str, Any]:
-    """导出出水监测清单：返回当前过滤条件下的全量数据。"""
-    items, total = service.list_entries(page=1, size=10000)
-    return {"module": "effluent", "total": total, "items": items}
+@router.post("/{entry_id}/actions", response_model=ActionResult)
+def run_action(entry_id: int, payload: EntryPayload) -> ActionResult:
+    """对单条出水记录执行预警通知、关阀截流、恢复排放；处置动作不改写自动判定结论。"""
+    action = str(payload.values.get("action") or "").strip()
+    entry, message = service.run_action(entry_id, action)
+    if entry is None:
+        return ActionResult(ok=False, message=message)
+    return ActionResult(ok=True, message=message, entry=entry)
